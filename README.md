@@ -92,7 +92,7 @@ npm start
 | Client | Status |
 |--------|--------|
 | 🏗️ **Architectudio** | ✅ Tested & Verified |
-| 🧪 **Kelivo** | ✅ Tested & Verified |
+| 🧪 **Kelivo  Cherry Studio** | ✅ Tested & Verified |
 | 🔮 **Other MCP Clients** | ✅ Should work — any client supporting **Streamable HTTP (MCP 2025-11-25)** can connect |
 
 ---
