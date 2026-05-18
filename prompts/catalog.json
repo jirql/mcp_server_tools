@@ -1,0 +1,39 @@
+{
+  "prompts": [
+    {
+      "id": "scanMode",
+      "type": "select",
+      "label": "扫描方式",
+      "description": "选择快速或深度扫描方式",
+      "options": [
+        { "value": "masscan", "label": "Masscan（快速全端口）" },
+        { "value": "nmap",    "label": "Nmap（服务指纹）" },
+        { "value": "combo",   "label": "先 Masscan 再 Nmap（组合）" }
+      ],
+      "default": "combo"
+    },
+    {
+      "id": "targetCIDR",
+      "type": "text",
+      "label": "目标 CIDR",
+      "placeholder": "例：203.0.113.0/24",
+      "validation": {
+        "regex": "^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/(\\d|[12]\\d|3[0-2])$",
+        "errorMessage": "请输入合法的 CIDR，例如 203.0.113.0/24"
+      }
+    },
+    {
+      "id": "portRange",
+      "type": "text",
+      "label": "端口范围",
+      "placeholder": "例：22,80,443 或 1-1000",
+      "default": "1-65535"
+    },
+    {
+      "id": "useProxy",
+      "type": "boolean",
+      "label": "是否使用代理",
+      "default": false
+    }
+  ]
+}

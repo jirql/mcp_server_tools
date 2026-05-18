@@ -1,0 +1,480 @@
+/**
+ * Unified MCP Tools - Focused Design
+ * 6 core tools that replace 31 individual tools
+ * Maintains full MCP protocol standardization
+ */
+
+
+import { terminalOps } from './ops-terminal.js';
+import { tmuxOps } from './ops-tmux.js';
+import { fileOps } from './ops-file.js';
+import { sessionOps } from './ops-session.js';
+import { systemOps } from './ops-system.js';
+import { execOps } from './ops-exec.js';
+
+// === 6 Core Unified Tools ===
+
+export function initializeTools(sessionManager, config) {
+  const tools = {};
+
+  // === Tool 1: TERMINAL (replaces 11 shell tools) ===
+  tools['terminal'] = {
+    name: 'terminal',
+    description: 'Unified terminal/session control: create, write, read, execute, signal, resize, kill, info, rename, stream',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'write', 'read', 'exec', 'signal', 'resize', 'kill', 'info', 'rename', 'stream'],
+          required: true,
+          description: 'Terminal operation to perform'
+        },
+        sessionId: {
+          type: 'string',
+          description: 'Session ID (not needed for create, required for others)',
+          maxLength: 128
+        },
+        shell: {
+          type: 'string',
+          description: 'Shell path when creating session',
+          default: '/bin/bash'
+        },
+        args: {
+          type: 'array',
+          description: 'Shell arguments',
+          default: ['-i']
+        },
+        data: {
+          type: 'string',
+          description: 'Data to write to terminal',
+          maxLength: 4096
+        },
+        command: {
+          type: 'string',
+          description: 'Command to execute in terminal',
+          maxLength: 4096
+        },
+        signal: {
+          type: 'string',
+          enum: ['SIGINT', 'SIGTSTP', 'SIGQUIT', 'SIGEOF'],
+          description: 'Control signal to send'
+        },
+        cols: {
+          type: 'number',
+          minimum: 10,
+          maximum: 300,
+          description: 'Terminal columns for resize'
+        },
+        rows: {
+          type: 'number',
+          minimum: 5,
+          maximum: 100,
+          description: 'Terminal rows for resize'
+        },
+        name: {
+          type: 'string',
+          maxLength: 64,
+          description: 'New name for session rename'
+        },
+        timeout: {
+          type: 'number',
+          default: 60,
+          minimum: 1,
+          maximum: 300,
+          description: 'Timeout in seconds for exec'
+        },
+        clear: {
+          type: 'boolean',
+          default: true,
+          description: 'Clear buffer when reading'
+        },
+        wait: {
+          type: 'boolean',
+          default: false,
+          description: 'Wait for command completion'
+        }
+      },
+      required: ['action']
+    },
+    handler: async (params) => {
+      switch (params.action) {
+        case 'create':
+          return terminalOps.create(
+            `session_${Date.now()}`,
+            params.shell,
+            params.args || ['-i'],
+            {},
+            params.cols || 120,
+            params.rows || 30,
+            null
+          );
+        case 'write':
+          return terminalOps.write(params.sessionId, params.data);
+        case 'read':
+          return terminalOps.read(params.sessionId, params.clear !== false, params.wait);
+        case 'exec':
+          return terminalOps.exec(params.sessionId, params.command, params.timeout);
+        case 'signal':
+          return terminalOps.signal(params.sessionId, params.signal);
+        case 'resize':
+          return terminalOps.resize(params.sessionId, params.cols, params.rows);
+        case 'kill':
+          return terminalOps.kill(params.sessionId);
+        case 'info':
+          return terminalOps.info(params.sessionId);
+        case 'rename':
+          return terminalOps.rename(params.sessionId, params.name);
+        case 'stream':
+          return terminalOps.stream(params.sessionId, params.command);
+        default:
+          return { success: false, error: `Unknown action: ${params.action}` };
+      }
+    }
+  };
+
+  // === Tool 2: TMUX (replaces 7 tmux tools) ===
+  tools['tmux'] = {
+    name: 'tmux',
+    description: 'Unified tmux session management: create, attach, list, kill, command, send, capture',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'attach', 'list', 'kill', 'command', 'send', 'capture'],
+          required: true,
+          description: 'TMUX operation to perform'
+        },
+        sessionName: {
+          type: 'string',
+          description: 'TMUX session name',
+          maxLength: 64
+        },
+        key: {
+          type: 'string',
+          maxLength: 8,
+          description: 'TMUX key command (c, n, p, d, %, ", z, x, [, :)'
+        },
+        command: {
+          type: 'string',
+          maxLength: 256,
+          description: 'TMUX command via prefix:'
+        },
+        keys: {
+          type: 'string',
+          maxLength: 4096,
+          description: 'Keys to send to pane'
+        },
+        paneIndex: {
+          type: 'number',
+          default: 0,
+          description: 'Pane index'
+        },
+        cols: {
+          type: 'number',
+          minimum: 10,
+          maximum: 300,
+          description: 'Terminal columns'
+        },
+        rows: {
+          type: 'number',
+          minimum: 5,
+          maximum: 100,
+          description: 'Terminal rows'
+        },
+        lines: {
+          type: 'number',
+          default: 5000,
+          description: 'Lines to capture'
+        }
+      },
+      required: ['action']
+    },
+    handler: async (params) => {
+      switch (params.action) {
+        case 'create':
+          return tmuxOps.create(
+            params.sessionName,
+            params.cols || 120,
+            params.rows || 30,
+            null,
+            params.command
+          );
+        case 'attach':
+          return tmuxOps.attach(params.sessionName, params.cols, params.rows);
+        case 'list':
+          return tmuxOps.list(params.sessionName);
+        case 'kill':
+          return tmuxOps.kill(params.sessionName);
+        case 'command':
+          return tmuxOps.command(params.sessionId, params.key, params.command);
+        case 'send':
+          return tmuxOps.send(params.sessionName, params.keys, params.paneIndex, false);
+        case 'capture':
+          return tmuxOps.capture(params.sessionName, params.paneIndex, params.lines);
+        default:
+          return { success: false, error: `Unknown action: ${params.action}` };
+      }
+    }
+  };
+
+  // === Tool 3: EXECUTE (replaces 2 exec tools) ===
+  tools['execute'] = {
+    name: 'execute',
+    description: 'Synchronous command execution with streaming support: exec, stream',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['exec', 'stream'],
+          required: true,
+          description: 'Execution mode: exec=synchronous, stream=asynchronous'
+        },
+        command: {
+          type: 'string',
+          maxLength: 4096,
+          description: 'Command to execute'
+        },
+        timeout: {
+          type: 'number',
+          default: 60,
+          minimum: 1,
+          maximum: 300,
+          description: 'Timeout in seconds'
+        },
+        cwd: {
+          type: 'string',
+          description: 'Working directory'
+        },
+        env: {
+          type: 'object',
+          description: 'Environment variables'
+        }
+      },
+      required: ['action']
+    },
+    handler: async (params) => {
+      switch (params.action) {
+        case 'exec':
+          return execOps.exec(params.command, params.timeout, params.cwd, params.env);
+        case 'stream':
+          return execOps.stream(params.command, params.cwd);
+        default:
+          return { success: false, error: `Unknown action: ${params.action}` };
+      }
+    }
+  };
+
+  // === Tool 4: FILE (replaces 6 file tools) ===
+  tools['file'] = {
+    name: 'file',
+    description: 'Unified file operations: read, write, list, delete, download, upload, fetch',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['read', 'write', 'list', 'delete', 'download', 'upload', 'fetch'],
+          required: true,
+          description: 'File operation to perform'
+        },
+        path: {
+          type: 'string',
+          description: 'File or directory path'
+        },
+        content: {
+          type: 'string',
+          description: 'Content to write'
+        },
+        data: {
+          type: 'string',
+          description: 'Base64 encoded data for upload'
+        },
+        encoding: {
+          type: 'string',
+          default: 'utf8',
+          description: 'File encoding'
+        },
+        append: {
+          type: 'boolean',
+          default: false,
+          description: 'Append to file'
+        },
+        showHidden: {
+          type: 'boolean',
+          default: false,
+          description: 'Show hidden files'
+        },
+        offset: {
+          type: 'number',
+          default: 0,
+          description: 'Byte offset for chunked operations'
+        },
+        chunkSize: {
+          type: 'number',
+          default: 1048576,
+          description: 'Chunk size for download/upload'
+        },
+        url: {
+          type: 'string',
+          maxLength: 2048,
+          description: 'URL to fetch'
+        },
+        method: {
+          type: 'string',
+          enum: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD'],
+          default: 'GET',
+          description: 'HTTP method'
+        },
+        headers: {
+          type: 'object',
+          description: 'HTTP headers'
+        },
+        body: {
+          type: 'string',
+          description: 'Request body'
+        }
+      },
+      required: ['action']
+    },
+    handler: async (params) => {
+      switch (params.action) {
+        case 'read':
+          return fileOps.read(params.path, params.encoding);
+        case 'write':
+          return fileOps.write(params.path, params.content, params.encoding, params.append, false);
+        case 'list':
+          return fileOps.list(params.path, params.showHidden, false);
+        case 'delete':
+          return fileOps.delete(params.path);
+        case 'download':
+          return fileOps.download(params.path, params.offset, params.chunkSize);
+        case 'upload':
+          return fileOps.upload(params.path, params.data, params.offset, params.append);
+        case 'fetch':
+          return fileOps.fetchUrl(params.url, params.method, params.headers, params.body, params.timeout || 60);
+        default:
+          return { success: false, error: `Unknown action: ${params.action}` };
+      }
+    }
+  };
+
+  // === Tool 5: SESSION (replaces 5 session tools) ===
+  tools['session'] = {
+    name: 'session',
+    description: 'Unified session management: list, killAll, background, foreground, stats',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'killAll', 'background', 'foreground', 'stats'],
+          required: true,
+          description: 'Session management operation'
+        },
+        includeDetails: {
+          type: 'boolean',
+          default: true,
+          description: 'Include detailed session info'
+        },
+        statsMode: {
+          type: 'boolean',
+          default: false,
+          description: 'Show statistics summary'
+        },
+        zombieThreshold: {
+          type: 'number',
+          default: 15,
+          description: 'Zombie threshold in minutes'
+        },
+        force: {
+          type: 'boolean',
+          default: false,
+          description: 'Force kill all sessions'
+        },
+        sessionId: {
+          type: 'string',
+          description: 'Session ID for background/foreground'
+        },
+        command: {
+          type: 'string',
+          description: 'Command description for background session'
+        },
+        includeProcesses: {
+          type: 'boolean',
+          default: false,
+          description: 'Include per-session stats'
+        }
+      },
+      required: ['action']
+    },
+    handler: async (params) => {
+      switch (params.action) {
+        case 'list':
+          return sessionOps.list(params.includeDetails, params.statsMode, params.zombieThreshold);
+        case 'killAll':
+          return sessionOps.killAll(params.force);
+        case 'background':
+          return sessionOps.background(params.sessionId, params.command);
+        case 'foreground':
+          return sessionOps.foreground(params.sessionId);
+        case 'stats':
+          return sessionOps.stats(params.includeProcesses);
+        default:
+          return { success: false, error: `Unknown action: ${params.action}` };
+      }
+    }
+  };
+
+  // === Tool 6: SYSTEM (replaces 3 system tools) ===
+  tools['system'] = {
+    name: 'system',
+    description: 'Unified system information: info, network, portScan',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['info', 'network', 'portScan'],
+          required: true,
+          description: 'System information operation'
+        },
+        target: {
+          type: 'string',
+          maxLength: 256,
+          description: 'Target host for port scan'
+        },
+        ports: {
+          type: 'string',
+          maxLength: 512,
+          description: 'Ports to scan'
+        }
+      },
+      required: ['action']
+    },
+    handler: async (params) => {
+      switch (params.action) {
+        case 'info':
+          return systemOps.info();
+        case 'network':
+          return systemOps.network();
+        case 'portScan':
+          return systemOps.portScan(params.target, params.ports);
+        default:
+          return { success: false, error: `Unknown action: ${params.action}` };
+      }
+    }
+  };
+
+  return tools;
+}
+
+export function getToolsList(tools) {
+  return Object.values(tools).map(tool => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema
+  }));
+}

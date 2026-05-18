@@ -1,0 +1,39 @@
+{
+  "server": {
+    "port": 10000,
+    "host": "0.0.0.0",
+    "name": "MCP Server for Kali Linux",
+    "version": "2025-11-25"
+  },
+  "security": {
+    "allowed_ips": ["127.0.0.1", "192.168.0.100", "192.168.0.101", "192.168.0.102", "192.168.0.103", "192.168.0.104"],
+    "rate_limit": {
+      "window_ms": 60000,
+      "max_requests": 200
+    }
+  },
+  "terminal": {
+    "shell": "/bin/bash",
+    "args": ["-i"],
+    "env": {
+      "TERM": "xterm-256color",
+      "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "HOME": "/root",
+      "LANG": "en_US.UTF-8"
+    },
+    "cols": 120,
+    "rows": 30,
+    "timeout": 3600,
+    "max_sessions": 20
+  },
+  "tmux": {
+    "path": "/usr/bin/tmux",
+    "default_session_prefix": "mcp_",
+    "max_sessions": 10
+  },
+  "kali_tools": {
+    "nmap": {
+      "path": "/usr/bin/nmap"
+    }
+  }
+}
