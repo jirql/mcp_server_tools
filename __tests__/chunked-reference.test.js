@@ -3,7 +3,9 @@
  * 验证改进：1. 大内容分段 2. referenceId 3. JSON 格式优化
  */
 
-import { fileOps } from './ops-file.js';
+import { describe, test } from 'node:test';
+import assert from 'node:assert';
+import { fileOps } from '../ops-file.js';
 
 // 模拟测试环境
 const TEST_URL = 'https://httpbin.org/html'; // 约 5KB，适合测试
@@ -16,37 +18,36 @@ describe('File Operations - Chunked Reading & ReferenceId', () => {
     test('基础 fetch 返回结构化数据', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto');
       
-      expect(result.success).toBe(true);
-      expect(typeof result.status).toBe('number');
-      expect(typeof result.body).toBe('string');
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(typeof result.status, 'number');
+      assert.strictEqual(typeof result.body, 'string');
     });
 
     test('chunkStart=0 返回完整内容', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 0, 1000);
       
-      expect(result.success).toBe(true);
-      expect(result.chunk).toBeNull(); // 无需分段
-      expect(result.totalLength).toBeGreaterThan(0);
-      expect(result.isLargeContent).toBe(false);
+      assert.strictEqual(result.success, true);
+      assert.ok(result.body.length > 0);
+      assert.ok(result.totalLength > 0);
+      assert.strictEqual(result.isLargeContent, false);
     });
 
     test('chunkStart=1000 返回分段内容', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 1000, 500);
       
-      expect(result.success).toBe(true);
-      expect(result.chunk).toHaveProperty('currentChunk');
-      expect(result.chunk).toHaveProperty('totalChunks');
-      expect(result.chunk.nextStart).toBeGreaterThanOrEqual(0);
+      assert.strictEqual(result.success, true);
+      assert.ok(result.chunk !== null && 'currentChunk' in result.chunk);
+      assert.ok(result.chunk !== null && 'totalChunks' in result.chunk);
+      assert.ok(result.chunk.nextStart >= 0);
     });
 
     test('大文件自动识别', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 0, 100);
       
-      // 虽然 100 字节很小，但验证 chunkInfo 结构
       if (result.totalLength > 100000) {
-        expect(result.isLargeContent).toBe(true);
+        assert.strictEqual(result.isLargeContent, true);
       } else {
-        expect(result.isLargeContent).toBe(false);
+        assert.strictEqual(result.isLargeContent, false);
       }
     });
 
@@ -54,8 +55,8 @@ describe('File Operations - Chunked Reading & ReferenceId', () => {
       const refId = 'test_ref_001';
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 0, 50000, refId);
       
-      expect(result.success).toBe(true);
-      expect(result.referenceId).toBe(refId);
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.referenceId, refId);
     });
 
   });
@@ -68,15 +69,15 @@ describe('File Operations - Chunked Reading & ReferenceId', () => {
       const call1 = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 0, 50000, refId);
       const call2 = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 50000, 50000, refId);
       
-      expect(call1.referenceId).toBe(refId);
-      expect(call2.referenceId).toBe(refId);
-      expect(call1.referenceId).toBe(call2.referenceId);
+      assert.strictEqual(call1.referenceId, refId);
+      assert.strictEqual(call2.referenceId, refId);
+      assert.strictEqual(call1.referenceId, call2.referenceId);
     });
 
     test('无 referenceId 返回 null', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto');
       
-      expect(result.referenceId).toBeNull();
+      assert.strictEqual(result.referenceId, null);
     });
 
   });
@@ -86,23 +87,20 @@ describe('File Operations - Chunked Reading & ReferenceId', () => {
     test('chunkInfo 独立对象', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 0, 1000);
       
-      // chunk 应该是独立对象或 null，不是内嵌在 body 中
       if (result.chunk !== null) {
-        expect(result.chunk).toMatchObject({
-          currentChunk: expect.any(Number),
-          totalChunks: expect.any(Number),
-          nextStart: expect.any(Number)
-        });
+        assert.ok(typeof result.chunk.currentChunk === 'number');
+        assert.ok(typeof result.chunk.totalChunks === 'number');
+        assert.ok(typeof result.chunk.nextStart === 'number');
       }
     });
 
     test('length 字段分离', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 0, 1000);
       
-      expect(result).toHaveProperty('totalLength');
-      expect(result).toHaveProperty('contentLength');
-      expect(typeof result.totalLength).toBe('number');
-      expect(typeof result.contentLength).toBe('number');
+      assert.ok('totalLength' in result);
+      assert.ok('contentLength' in result);
+      assert.strictEqual(typeof result.totalLength, 'number');
+      assert.strictEqual(typeof result.contentLength, 'number');
     });
 
   });
@@ -112,31 +110,32 @@ describe('File Operations - Chunked Reading & ReferenceId', () => {
     test('chunkStart 超出范围返回空', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 1000000, 50000);
       
-      expect(result.success).toBe(true);
-      expect(result.body).toBe('');
-      expect(result.totalLength).toBeGreaterThan(0);
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.body, '');
+      assert.ok(result.totalLength > 0);
     });
 
     test('chunkSize 太小返回多个分段', async () => {
       const chunks = [];
       let offset = 0;
+      let result;
       
       do {
-        const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', offset, 100);
+        result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', offset, 100);
         
         chunks.push(result.body);
         offset = result.chunk?.nextStart || offset + 100;
         
       } while (offset < (result.totalLength || 10000));
       
-      expect(chunks.length).toBeGreaterThan(1);
+      assert.ok(chunks.length > 1);
     });
 
     test('最后一个分段的 isLastChunk 标记', async () => {
       const result = await fileOps.fetchUrl(TEST_URL, 'GET', {}, null, 30, 0, 'chrome', 'auto', 10000, 100);
       
       if (result.chunk) {
-        expect(result.chunk).toHaveProperty('isLastChunk');
+        assert.ok('isLastChunk' in result.chunk);
       }
     });
 

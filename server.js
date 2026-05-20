@@ -179,10 +179,6 @@ const requestQueue = {
   },
 };
 
-// Backward compatibility: expose requestQueue globally
-// (auto-tuner now uses ConcurrencyManager directly, but other code may still reference it)
-global.requestQueue = requestQueue;
-
 // Create Express app
 const app = express();
 
@@ -272,9 +268,6 @@ const getWaiters = new Map();
 // ============================================================================
 // Performance Monitoring (ConcurrencyManager-backed, P0-1)
 // ============================================================================
-// Backward-compatible alias so existing imports of global.perfStats work
-global.perfStats = concurrencyManager.perfStats;
-
 /**
  * Record a tool call — routes through ConcurrencyManager.
  * Kept as a standalone function for backward compatibility.

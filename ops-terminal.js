@@ -45,12 +45,15 @@ export function setSessionManager(sm) {
   sessionManager = sm;
 }
 
+function ensureSessionManager() {
+  if (!sessionManager) throw new Error('sessionManager not initialized');
+  return sessionManager;
+}
+
 export const terminalOps = {
   async create(sessionId, shell, args, env, cols, rows, cwd, options = {}) {
     try {
-      if (!sessionManager || !sessionManager.createSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
+      ensureSessionManager();
       const sessionOptions = {};
       if (options.mcpSessionId) sessionOptions.ownerHttpSessionId = options.mcpSessionId;
       const session = sessionManager.createSession(
@@ -71,10 +74,7 @@ export const terminalOps = {
 
   async write(sessionId, data) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -86,12 +86,9 @@ export const terminalOps = {
     }
   },
 
-  async read(sessionId, clear, wait, pattern, timeout) {
+  async read(sessionId, clear, wait, pattern, timeout, doneMarker = null, pollInterval = 200) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -131,6 +128,44 @@ export const terminalOps = {
         }
       }
 
+      // doneMarker mode: poll until marker appears, then strip it
+      if (doneMarker) {
+        const timeoutMs = Math.min((timeout || 30) * 1000, 300000);
+        const deadline = Date.now() + timeoutMs;
+        let output = '';
+
+        while (Date.now() < deadline) {
+          output = session.read(false);
+          if (output.includes(doneMarker)) {
+            const cleaned = output.replace(doneMarker, '').trimEnd();
+            if (clear !== false) session.clear();
+            return {
+              success: true,
+              output: cleaned,
+              hasOutput: cleaned.length > 0,
+              state: session.state,
+              isComplete: true,
+              waited: true,
+              waitMode: 'doneMarker',
+            };
+          }
+          await new Promise(r => setTimeout(r, pollInterval));
+        }
+
+        // Timeout — return whatever we have
+        if (clear !== false) session.clear();
+        return {
+          success: true,
+          output: output,
+          hasOutput: output.length > 0,
+          state: session.state,
+          isComplete: false,
+          waited: true,
+          waitMode: 'doneMarker',
+          timeout: true,
+        };
+      }
+
       const output = session.read(clear !== false);
       const isComplete = session.state === SessionState.IDLE;
 
@@ -142,7 +177,7 @@ export const terminalOps = {
         isComplete: isComplete
       };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error.message, suggestion: error.message.includes('not found') ? 'Session may have exited. Check session state with sessionOps.info().' : undefined };
     }
   },
 
@@ -150,10 +185,7 @@ export const terminalOps = {
     const startTime = Date.now();
 
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -295,16 +327,13 @@ export const terminalOps = {
       });
     } catch (error) {
       logger.error('Terminal exec error', { error: error.message });
-      return { success: false, error: error.message };
+      return { success: false, error: error.message, failedCommand: command, suggestion: 'Check command syntax and session state. For long-running commands, try increasing timeout.' };
     }
   },
 
   async signal(sessionId, signal) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -322,10 +351,7 @@ export const terminalOps = {
 
   async resize(sessionId, cols, rows) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -339,10 +365,7 @@ export const terminalOps = {
 
   async kill(sessionId) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -356,10 +379,7 @@ export const terminalOps = {
 
   async info(sessionId) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -375,10 +395,7 @@ export const terminalOps = {
 
   async rename(sessionId, name) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -392,10 +409,7 @@ export const terminalOps = {
 
   async stream(sessionId, command) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }

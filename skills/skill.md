@@ -12,21 +12,23 @@ MCP Client ─── Streamable HTTP (MCP 2025-11-25) ───> server.js (Expr
                                            └──────────────┬──────────────┘
                                                           │
                                            ┌──────────────┴──────────────┐
-                                           │       tools.js              │
-                                           │  7 tools, ~60 sub-actions  │
-                                           │  AJV schema validation      │
-                                           └──┬───┬───┬───┬───┬───┬───┬─┘
-                                              │   │   │   │   │   │   │
-                     terminal  tmux  execute  file  session  system  path
+                                            │       tools.js              │
+                                            │  10 tools, ~60 sub-actions │
+                                            │  AJV schema validation      │
+                                            └──┬───┬───┬───┬───┬───┬───┬─┘
+                                               │   │   │   │   │   │   │
+                      terminal  tmux  execute  file  session  system  path
 ```
 
-All tools use a unified dispatch pattern: `{ action: "<op>", ...params }` via `tools/call`.
+All tools use a unified dispatch pattern: `{ action: "<op>", ...params }` via `tools/call` (except `shell` and `fs` which use parameter-based dispatch).
+
+**Extra registrations:** `sessions` (alias for `session`), `shell` (convenience dispatch), `fs` (simplified file ops). Total: 10 tools.
 
 ---
 
 ## 1. terminal — Interactive PTY Shell Sessions
 
-**Purpose:** Interactive terminal sessions (bash, msfconsole, sliver, python, etc.) with state persistence.
+**Purpose:** Interactive terminal sessions (bash, msfconsole, sliver, python, etc.) with state persistence. Supports `terminalId` alias for `sessionId`.
 
 **Actions:** `create`, `write`, `read`, `exec`, `signal`, `resize`, `kill`, `info`, `rename`, `stream`
 
@@ -55,17 +57,21 @@ All tools use a unified dispatch pattern: `{ action: "<op>", ...params }` via `t
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `action` | string | **required** | One of: create, write, read, exec, signal, resize, kill, info, rename, stream |
-| `sessionId` | string | — | Required for all except `create` |
+| `sessionId` | string | — | Required for all except `create`. Also accepts `terminalId` as alias. |
+| `terminalId` | string | — | Alias for `sessionId`. Use interchangeably. |
 | `shell` | string | `/bin/bash` | Shell/executable path: `/bin/bash`, `/bin/zsh`, `/usr/bin/msfconsole`, `/usr/bin/sliver-client`, `/usr/bin/python3` |
-| `args` | string[] | `["-i"]` | Shell arguments: `["-i"]` for bash, `["-q"]` for msfconsole |
-| `data` | string | — | Raw input to write (use `\n` for Enter) |
+| `args` | string[] | `["-i"]` (runtime) | Shell arguments: `["-i"]` for bash, `["-q"]` for msfconsole |
 | `command` | string | — | Command to execute (`exec` action) |
+| `data` | string | — | Raw input to write (use `\n` for Enter) |
 | `signal` | string | — | `SIGINT`(Ctrl+C), `SIGTSTP`(Ctrl+Z), `SIGQUIT`, `SIGEOF`(Ctrl+D) |
-| `cols` / `rows` | number | 120 / 30 | Terminal size (width/height) |
-| `timeout` | number | tool-recommended | Wait timeout in seconds (1-300) |
+| `name` | string | — | New session name for `rename` action. Max 64 chars. |
+| `cols` / `rows` | number | 120 / 30 (runtime) | Terminal size (width/height) |
+| `timeout` | number | 30 | Wait timeout in seconds (1-300) |
 | `clear` | boolean | true | Clear output buffer after read |
 | `wait` | boolean/string | false | Read mode: `false`(immediate), `"idle"`(wait prompt), `"output"`(wait output), `"pattern"`(wait regex) |
 | `pattern` | string | — | Regex when `wait="pattern"`, e.g. `"password:"` |
+| `doneMarker` | string | null | Custom marker string for read. Polls until marker appears in output, then strips it. Useful for commands without clear prompt. |
+| `pollInterval` | number | 200 | Polling interval in ms for `doneMarker` mode. Valid range: 50-5000. |
 
 ### Shell-Specific Prompt Detection
 
@@ -97,9 +103,43 @@ Commands matching a `FAST_COMMANDS` pattern (ls, pwd, whoami, id, date, echo, ca
 
 ## 2. tmux — Terminal Multiplexer
 
-**Purpose:** Persistent terminal sessions, split-screen, background tasks that survive disconnection.
+**Purpose:** Persistent terminal sessions, split-screen, background tasks that survive disconnection. Supports `tmuxSession` alias for `sessionName`.
 
 **Actions:** `status`, `create`, `createDetached`, `attach`, `list`, `kill`, `killAll`, `rename`, `createWindow`, `listWindows`, `selectWindow`, `killWindow`, `splitPane`, `resizePane`, `selectPane`, `listPanes`, `killPane`, `sendKeys`, `sendPrefix`, `capture`, `type`, `execute`, `waitFor`, `listBuffers`, `saveBuffer`, `copyMode`, `info`, `refresh` — 28 total.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `action` | string | **required** | One of the 28 actions above. |
+| `sessionName` | string | — | Tmux session name. Also accepts `tmuxSession` as alias. |
+| `tmuxSession` | string | — | Alias for `sessionName`. Use interchangeably. |
+
+**Options sub-properties** (embedded object used by most actions):
+
+| Option | Type | Applies To | Description |
+|--------|------|------------|-------------|
+| `command` | string | create, sendKeys, execute, type | Command or keys to send. |
+| `windowIndex` | number | window/pane operations | Target window index (default: 0). |
+| `windowName` | string | createWindow only | Name for the new window. |
+| `direction` | string | splitPane only | `"horizontal"` or `"vertical"`. |
+| `size` | number | splitPane, resizePane | Split size or pane dimensions in percentage/rows. |
+| `paneIndex` | number | selectPane, killPane, resizePane | Target pane index in the window. |
+| `newName` | string | rename only | New session name. |
+| `lines` | number | capture only | Number of lines to capture (default: all). |
+| `pattern` | string | waitFor only | Regex pattern to wait for in output. |
+| `timeout` | number | execute, waitFor | Timeout in seconds (default: varies). |
+| `waitUntilComplete` | boolean | execute only | Wait for command to finish before returning. |
+| `enter` | boolean | sendKeys only | Append Enter key after keys (default: false). |
+| `cols` / `rows` | number | create, createDetached | Terminal dimensions. |
+| `cwd` | string | create, createDetached, execute | Working directory. |
+| `detach` | boolean | attach, create | Whether to detach after attach or create detached. |
+| `force` | boolean | killAll, kill | Force kill without confirmation. |
+| `detailed` | boolean | list, info | Include detailed session info. |
+| `interval` | number | waitFor | Check interval in ms (default: 500). |
+| `bufferIndex` | number | saveBuffer | Buffer index to save. |
+| `filePath` | string | saveBuffer | File path to save buffer contents. |
+| `clientName` | string | refresh | Client name for refresh operation. |
 
 ### Core Sessions
 
@@ -183,7 +223,7 @@ The tmux ops module includes:
 
 **Purpose:** Run commands without PTY overhead. No session state. Faster than `terminal` for simple commands.
 
-**Actions:** `exec`, `stream`, `batch`
+**Actions:** `exec`, `stream`, `batch`, `cancel`, `cancelAll`
 
 ### exec — Single Synchronous Command
 
@@ -212,12 +252,25 @@ The tmux ops module includes:
 
 **Note:** `stream` falls back to `sessionManager.createSession()`, creating a PTY session usable with `terminal` tool's `read` action.
 
+### cancel / cancelAll — Execution Lifecycle
+
+```json
+{"action":"cancel", "execId":"exec_1747700000_1"}
+// Response: { success:true, cancelled:"exec_1747700000_1" }
+
+{"action":"cancelAll"}
+// Response: { success:true, cancelled:3 }
+```
+
+Each `exec`/`batch` call returns an `execId` which can be used with `cancel`. Uses `AbortController` + `SIGTERM`/`SIGKILL`.
+
 ### Parameter Reference
 
 | Parameter | Type | Default | Limits |
 |-----------|------|---------|--------|
 | `command` | string | — | Max 4096 chars |
 | `commands` | string[] | — | Max 50 items, 4096 chars each |
+| `execId` | string | — | Returned by exec/batch. Use with `cancel` action. |
 | `timeout` | number | 60 | 1-300 seconds |
 | `concurrency` | number | 5 | 1-20 |
 | `cwd` | string | — | Working directory |
@@ -306,6 +359,33 @@ The tmux ops module includes:
 └──────────────────────────────────────────────────────────────┘
 ```
 
+### Parameter Reference
+
+| Parameter | Type | Default | Applies To | Description |
+|-----------|------|---------|------------|-------------|
+| `action` | string | **required** | all | `read`, `write`, `list`, `delete`, `download`, `upload`, `fetch` |
+| `path` | string | — | all except fetch | File path (absolute). |
+| `content` | string | — | `write` only | File content to write. |
+| `data` | string | — | `upload` only | Base64 encoded binary data. |
+| `encoding` | string | `"utf8"` | `read`/`write` | File encoding: `utf8`, `binary`, `base64`, etc. |
+| `append` | boolean | false | `write`/`upload` | Append to existing file instead of overwrite. |
+| `showHidden` | boolean | false | `list` only | Show hidden files (starting with `.`). |
+| `offset` | number | 0 | `download`/`fetch` | Byte offset for segmented read. |
+| `chunkSize` | number | 1048576 | `download`/`upload` | Chunk size in bytes for download/upload (default: 1MB). For fetch, handler falls back to 50000. |
+| `url` | string | — | `fetch` only | Target URL for HTTP request. |
+| `method` | string | `"GET"` | `fetch` only | HTTP method: GET, POST, PUT, DELETE, HEAD. |
+| `headers` | object | — | `fetch` only | Custom HTTP headers as key-value pairs. |
+| `body` | object | — | `fetch` only | Request body for POST/PUT (auto JSON-serialized). |
+| `timeout` | number | 60 | `fetch` only | Request timeout in seconds (1-300). |
+| `retry` | number | 0 | `fetch` only | Number of retries on failure (0-3). |
+| `profile` | string | `"normal"` | `fetch` only | Preset profile: `normal`, `stealth`, `mobile`, `fast`. Overrides uaMode/tlsProfile defaults. |
+| `uaMode` | string | `"random"` | `fetch` only | User-Agent rotation mode (see table below). |
+| `tlsProfile` | string | `"auto"` | `fetch` only | TLS fingerprint profile (see table below). |
+| `paramHide` | boolean | true | `fetch` only | Hide params from process command line via tmpfile. |
+| `chunkStart` | number | 0 | `fetch` only | Byte offset for chunked fetch. |
+| `referenceId` | string | — | `fetch` only | Cross-tool reference ID for linking results. |
+| `contextVar` | string | — | `fetch` only | Context variable name for storing result. |
+
 ### uaMode Profiles
 
 | Mode | Behavior | Example Output |
@@ -318,6 +398,17 @@ The tmux ops module includes:
 | `"mobile"` | Falls back to Chrome UA | Same as chrome |
 | `"bot"` | Googlebot | `Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)` |
 | `"curl"` | Native curl version | `curl/8.4` |
+
+### Profile Presets
+
+Quick presets that set multiple parameters at once. Explicit params override preset defaults.
+
+| Preset | uaMode | tlsProfile | paramHide | Use Case |
+|--------|--------|------------|-----------|----------|
+| `"normal"` (default) | random | auto | true | General purpose |
+| `"stealth"` | random | chrome131 | true | Maximum WAF/IDS evasion |
+| `"mobile"` | mobile | auto | true | Mobile device fingerprint |
+| `"fast"` | curl | auto | false | Minimal overhead, no stealth |
 
 ### tlsProfile Options
 
@@ -367,6 +458,20 @@ Precompiled binaries located at `curl-impersonate/`. Detection order:
 
 **Actions:** `list`, `killAll`, `reset`, `background`, `foreground`, `stats`
 
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `action` | string | **required** | One of: list, killAll, reset, background, foreground, stats |
+| `sessionId` | string | — | Session ID for background/foreground actions. |
+| `command` | string | — | Command description for background action. |
+| `force` | boolean | false | Force kill without confirmation. |
+| `includeDetails` | boolean | false | Include full session details in list. |
+| `zombieThreshold` | number | 15 | Minutes of inactivity to mark as zombie. |
+| `statsMode` | boolean | false | Return statistics summary instead of session list. |
+| `includeProcesses` | boolean | false | Include OS process info in stats. |
+| `httpSessionId` | string | — | Filter sessions by owner HTTP session ID. |
+
 ```json
 // List all sessions with zombie detection
 {"action":"list", "includeDetails":true, "zombieThreshold":15}
@@ -384,6 +489,10 @@ Precompiled binaries located at `curl-impersonate/`. Detection order:
 // Mark session as background (long-running task)
 {"action":"background", "sessionId":"session_xxx", "command":"nmap -sV 192.168.1.0/24"}
 // Response: { success:true, sessionId:"session_xxx", isBackground:true }
+
+// Bring session back to foreground
+{"action":"foreground", "sessionId":"session_xxx"}
+// Response: { success:true, sessionId:"session_xxx", isBackground:false }
 
 // Resource statistics
 {"action":"stats", "includeProcesses":true}
@@ -436,6 +545,25 @@ A session is marked as `zombie` when `inactiveTime > zombieThreshold` (default 1
 
 **Actions:** `tree`, `explore`, `context`, `bookmark`, `find`, `stats`, `quickView`
 
+### Shared Parameters
+
+| Parameter | Type | Default | Applies To | Description |
+|-----------|------|---------|------------|-------------|
+| `action` | string | **required** | all | One of the 7 actions above. |
+| `path` | string | — | tree, explore, find, stats, quickView | Target path. If omitted, uses current context path. |
+| `maxDepth` | number | 3 (tree) / 2 (explore) / 5 (find) | tree, explore, find | Max recursion depth (1-10). |
+| `showHidden` | boolean | false | tree, explore | Show hidden files/dirs (starting with `.`). |
+| `pattern` | string | — | find only | File name pattern (glob or substring). |
+| `type` | string | `"all"` | find only | Filter: `file`, `directory`, `all`. |
+| `maxResults` | number | 50 (find) / 200 (tree) | find, tree | Max results to return. |
+| `dirsOnly` | boolean | false | tree only | Show directories only. |
+| `includeSize` | boolean | true | tree only | Include file sizes in tree output. |
+| `groupByType` | boolean | true | explore only | Group files by type category. |
+| `showInteresting` | boolean | true | explore only | Highlight interesting files (configs, scripts, etc.). |
+| `verbose` | boolean | false | explore only | Return `_debug` field with internal decision logic. |
+| `name` | string | — | context, bookmark | Action name for context (`get`/`set`/`back`/`history`/`clear`) or bookmark name. |
+| `limit` | number | 10 | context (history) only | Max history entries to return (1-100). |
+
 ### tree — Recursive Directory Listing
 
 ```json
@@ -448,13 +576,18 @@ A session is marked as `zombie` when `inactiveTime > zombieThreshold` (default 1
 ### explore — Smart Directory Summary
 
 ```json
-{"action":"explore", "path":"/var/log", "groupByType":true, "showInteresting":true}
+{"action":"explore", "path":"/var/log", "groupByType":true, "showInteresting":true, "verbose":true}
 // Response: { success:true, path:"/var/log", parent:"/var",
 //   summary:{dirs:3, files:28, totalSize:12345, byType:{Log:10, Config:2, Text:16},
 //     interesting:[{name:"auth.log", type:"Log", size:"1.2MB"}]},
 //   contents:{directories:[{name:"nginx",...}], files:[{name:"syslog",...}]},
-//   suggestions:[{type:"config", file:"nginx.conf", hint:"Nginx configuration"}] }
+//   suggestions:[{type:"config", file:"nginx.conf", hint:"Nginx configuration"}],
+//   _debug:{rules:{ignoredDirs:[...], ignoredFiles:[...], interestingExtensions:{...}},
+//     decisions:{totalEntries:40, filteredOut:12, ...},
+//     context:{currentPath:"/var/log", historyDepth:5, exploreHistoryCount:3}} }
 ```
+
+When `verbose:true`, returns `_debug` field with rule decisions (why files are classified as interesting/ignored).
 
 ### context — Location Memory
 
@@ -474,6 +607,10 @@ A session is marked as `zombie` when `inactiveTime > zombieThreshold` (default 1
 // View history
 {"action":"context", "name":"history", "limit":10}
 // Response: { success:true, history:[{path:"/etc/nginx", visitedAt:..., visitCount:3}], total:20 }
+
+// Clear context (reset to default)
+{"action":"context", "name":"clear"}
+// Response: { success:true, currentPath:"/root", history:[], message:"Context reset" }
 ```
 
 ### bookmark — Path Shortcuts
@@ -534,6 +671,55 @@ Files: `.DS_Store`, `Thumbs.db`, `package-lock.json`, `yarn.lock`, `pnpm-lock.ya
 
 ---
 
+## 8. shell — Convenient Command Dispatch
+
+**Purpose:** Unified entry point that auto-routes to the best execution path.
+
+**Actions:** No `action` parameter — dispatches by parameter presence.
+
+**Parameters:** `command` (required), `sessionId` (optional), `timeout` (optional, default 30), `cwd` (optional)
+
+```json
+// WITH sessionId → sends to existing terminal session (write + read)
+{"command":"nmap -sV 192.168.1.1", "sessionId":"session_xxx"}
+// Response: terminalOps.write + terminalOps.read output
+
+// WITHOUT sessionId → one-shot spawn (fast, no PTY)
+{"command":"whoami", "timeout":10}
+// Response: execOps.exec output
+```
+
+Use `shell` when unsure which tool to reach for — it picks the right path automatically.
+
+---
+
+## 9. fs — Convenient File Operations
+
+**Purpose:** Simplified file I/O that maps directly to fileOps methods.
+
+**Actions:** `read`, `write`, `list`, `delete`
+
+**Parameters:** `action` (required), `path` (required), `content` (for write), `showHidden` (for list, default false)
+
+```json
+{"action":"read", "path":"/etc/hostname"}
+{"action":"write", "path":"/tmp/test.txt", "content":"hello"}
+{"action":"list", "path":"/home/user", "showHidden":true}
+{"action":"delete", "path":"/tmp/old.txt"}
+```
+
+Omit the `action`-based dispatch overhead of the `file` tool when you only need basic operations.
+
+---
+
+## 10. sessions — Alias for session
+
+**Purpose:** Exact mirror of the `session` tool. Registered as `sessions` for natural-language convenience (`sessions list`, `sessions killAll`).
+
+All parameters and responses are identical to the `session` tool (section 5).
+
+---
+
 ## Security Architecture
 
 ```
@@ -579,23 +765,7 @@ Files: `.DS_Store`, `Thumbs.db`, `package-lock.json`, `yarn.lock`, `pnpm-lock.ya
 
 ---
 
-## Auto-Tuner (sampling/auto-tuner.js)
-
-Adaptive concurrency control running every 30 seconds:
-
-```
-input:  global.perfStats (slow requests / total requests)
-output: global.requestQueue.concurrency (range: 20-80)
-
-logic:
-  if slowRatio > 0.15:
-    target = MAX(20, 80 * (1 - slowRatio))  // reduce concurrency
-  else:
-    loadFactor = 1 - slowRatio
-    target = MIN(80, 20 + 60 * loadFactor)  // increase concurrency
-```
-
-Also provides `getRecommendedTimeout(toolName)` for dynamic timeout assignment (base + extra based on slow ratio).
+## Auto-Tuner Formerly referenced `global.perfStats` — these globals have been removed; concurrency is now managed by `concurrency-manager.js`.
 
 ---
 
@@ -608,10 +778,11 @@ All tools return a consistent JSON structure:
 {"success":true, ...toolSpecificFields}
 
 // Error
-{"success":false, "error":"<human-readable message>", "errorCode":"<code>"}
+{"success":false, "error":"<human-readable message>", "errorCode":"<code>",
+ "failedCommand":"<command that failed>", "suggestion":"<helpful hint>"}
+```
 
-// MCP Protocol Error (from server.js)
-{"jsonrpc":"2.0", "id":1, "error":{"code":-32603, "message":"<error>"}}
+Enhanced error fields (`failedCommand`, `suggestion`, `exitCode`) are conditionally added to help AI assistants diagnose failures.
 ```
 
 ### Error Codes
@@ -641,6 +812,9 @@ All tools return a consistent JSON structure:
 |------|------|--------|-----|
 | Run `ls` once | **execute** | exec | Fastest, no state |
 | Interactive bash session | **terminal** | create | PTY state persistence |
+| One-shot command (fast) | **shell** | (no action) | Auto-routes: spawn vs terminal |
+| Quick file read/write | **fs** | read/write | Simplified, no action dispatch overhead |
+| View/manage sessions | **sessions** | list | Natural-language alias for session |
 | Run nmap (long wait) | **terminal** | exec | Auto-detects long-running, returns immediately with async mode |
 | Persistent background job | **tmux** | createDetached | Survives disconnection |
 | Split terminal | **tmux** | splitPane | Native tmux split |

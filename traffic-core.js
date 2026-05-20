@@ -45,7 +45,7 @@ const CURL_IMPERSONATE_MAP = {
 // ====== P2 修复：二进制路径缓存（避免重复 fs.access）======
 const BINARY_CACHE = new Map();
 
-async function detectCurlImpersonate(profile) {
+export async function detectCurlImpersonate(profile) {
   // 先查缓存
   const cached = BINARY_CACHE.get(profile);
   if (cached !== undefined) return cached;
@@ -136,7 +136,7 @@ const UA_TEMPLATES = {
   },
 };
 
-function generateUA(profile = "chrome") {
+export function generateUA(profile = "chrome") {
   const config = UA_TEMPLATES[profile];
   if (!config) return generateUA("chrome");
 
@@ -162,7 +162,7 @@ function generateUA(profile = "chrome") {
 // 2. 浏览器级 Header 生成
 // ============================================================================
 
-function getBrowserHeaders(profile) {
+export function getBrowserHeaders(profile) {
   const acceptLanguage = [
     "zh-CN,zh;q=0.9,en;q=0.8",
     "en-US,en;q=0.9,zh-CN;q=0.8",
@@ -210,7 +210,18 @@ function getBrowserHeaders(profile) {
   return headers;
 }
 
-function mergeHeaders(browserHeaders, userHeaders) {
+// ====== P0 修复：curl config 值转义（防止注入）======
+function escapeCurlConfigValue(value) {
+  if (typeof value !== 'string') return String(value);
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+export function mergeHeaders(browserHeaders, userHeaders) {
   const result = { ...browserHeaders };
 
   if (userHeaders) {
@@ -311,12 +322,12 @@ async function buildCurlConfig(
   configLines.push("keepalive-interval 10");
 
   if (method && method !== "GET") {
-    configLines.push(`request = "${method}"`);
+    configLines.push(`request = "${escapeCurlConfigValue(method)}"`);
   }
 
   if (!useImpersonate) {
     const ua = generateUA(uaProfile || "chrome");
-    configLines.push(`user-agent = "${ua}"`);
+    configLines.push(`user-agent = "${escapeCurlConfigValue(ua)}"`);
   }
 
   let mergedHeaders;
@@ -328,7 +339,7 @@ async function buildCurlConfig(
   }
 
   for (const [key, value] of Object.entries(mergedHeaders)) {
-    configLines.push(`header = "${key}: ${value}"`);
+    configLines.push(`header = "${escapeCurlConfigValue(key)}: ${escapeCurlConfigValue(value)}"`);
   }
 
   // ====== P1 修复：requestBody 写入临时文件，使用 --data-binary ======
@@ -362,7 +373,7 @@ async function buildCurlConfig(
     configLines.push(`tls-session-file = "${sessionFile}"`);
   }
 
-  configLines.push(`url = "${url}"`);
+  configLines.push(`url = "${escapeCurlConfigValue(url)}"`);
 
   return { configContent: configLines.join("\n"), tempDataFile };
 }

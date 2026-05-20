@@ -55,10 +55,6 @@ export class ConcurrencyManager {
   #listeners = new Map();
   #listenerIdCounter = 0;
 
-  // Exposed for auto-tuner backward compatibility
-  // The auto-tuner reads/writes this via the exposed API
-  perfStats = null; // Will be set to a proxy object
-
   constructor(options = {}) {
     this.#minConcurrency = options.minConcurrency ?? DEFAULTS.concurrency.min;
     this.#maxConcurrency = options.maxConcurrency ?? DEFAULTS.concurrency.max;
@@ -68,9 +64,6 @@ export class ConcurrencyManager {
 
     // Verify bounds
     this.#concurrency = Math.max(this.#minConcurrency, Math.min(this.#maxConcurrency, this.#concurrency));
-
-    // Create a backward-compatible proxy for auto-tuner.js
-    this.#setupPerfStatsProxy();
   }
 
   // ========================================================================
@@ -209,33 +202,6 @@ export class ConcurrencyManager {
 
     if (totalRecent === 0) return 0;
     return recentSlow / totalRecent;
-  }
-
-  // ========================================================================
-  // Backward Compatibility: perfStats proxy for auto-tuner.js
-  // ========================================================================
-
-  #setupPerfStatsProxy() {
-    // Some external code accesses global.perfStats directly (e.g., auto-tuner).
-    // This proxy maps those accesses to our internal state.
-    const manager = this;
-    this.perfStats = {
-      get requests() {
-        return manager.#stats.requests;
-      },
-      get errors() {
-        return manager.#stats.errors;
-      },
-      get totalDuration() {
-        return manager.#stats.totalDuration;
-      },
-      get slowRequests() {
-        return manager.#slowRequests;
-      },
-      get startTime() {
-        return manager.#stats.startTime;
-      },
-    };
   }
 
   // ========================================================================

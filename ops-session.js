@@ -11,6 +11,11 @@ export function setSessionManager(sm) {
   sessionManager = sm;
 }
 
+function ensureSessionManager() {
+  if (!sessionManager) throw new Error('sessionManager not initialized');
+  return sessionManager;
+}
+
 export const sessionOps = {
   async list(includeDetails, statsMode, zombieThreshold, httpSessionId) {
     try {
@@ -78,9 +83,7 @@ export const sessionOps = {
 
   async killAll(force) {
     try {
-      if (!sessionManager || !sessionManager.killAll) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
+      ensureSessionManager();
 
       const count = sessionManager.count();
       sessionManager.killAll(force);
@@ -97,9 +100,7 @@ export const sessionOps = {
 
   async reset() {
     try {
-      if (!sessionManager || !sessionManager.reset) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
+      ensureSessionManager();
 
       if (sessionManager.isAvailable()) {
         return {
@@ -121,10 +122,7 @@ export const sessionOps = {
 
   async background(sessionId, command) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }
@@ -146,10 +144,7 @@ export const sessionOps = {
 
   async foreground(sessionId) {
     try {
-      if (!sessionManager || !sessionManager.getSession) {
-        return { success: false, error: 'sessionManager not initialized' };
-      }
-      const session = sessionManager.getSession(sessionId);
+      const session = ensureSessionManager().getSession(sessionId);
       if (!session) {
         return { success: false, error: 'Session not found' };
       }

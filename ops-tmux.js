@@ -703,7 +703,7 @@ export const tmuxOps = {
       if (!env.available) return tmuxNotAvailableResponse(env);
 
       const safeSession = sessionName.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const target = `${safeSession}:${windowIndex}.${direction === 'vertical' ? 'v' : 'h'}`;
+      const target = `${safeSession}:${windowIndex}`;
 
       const args = ['split-window', '-t', target];
       if (direction === 'vertical') args.push('-v');

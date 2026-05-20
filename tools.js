@@ -76,6 +76,12 @@ const terminalSchema = {
         "Session ID from create action. Required for all actions except create.",
       maxLength: 128,
     },
+    terminalId: {
+      type: "string",
+      description:
+        "Terminal session ID (alias for sessionId). Use interchangeably with sessionId.",
+      maxLength: 128,
+    },
     shell: {
       type: "string",
       description:
@@ -149,6 +155,21 @@ const terminalSchema = {
       description:
         'Regex pattern to match when wait="pattern". Example: "password:" to wait for password prompt',
     },
+    doneMarker: {
+      type: "string",
+      maxLength: 128,
+      default: null,
+      description:
+        'Custom marker string that signals command completion. When set, read polls until this marker appears in output, then strips it. Useful for commands that produce no clear prompt. Example: "===DONE==="',
+    },
+    pollInterval: {
+      type: "number",
+      default: 200,
+      minimum: 50,
+      maximum: 5000,
+      description:
+        "Polling interval in ms for doneMarker mode. Lower=faster detection but higher CPU. Default: 200ms.",
+    },
   },
   required: ["action"],
 };
@@ -199,6 +220,12 @@ const tmuxSchema = {
       type: "string",
       description:
         'Tmux session name. Use descriptive names like "pentest", "msf", "scan". Required for most session operations.',
+      maxLength: 200,
+    },
+    tmuxSession: {
+      type: "string",
+      description:
+        "Tmux session name (alias for sessionName). Use interchangeably with sessionName.",
       maxLength: 200,
     },
     options: {
@@ -312,9 +339,9 @@ const executeSchema = {
   properties: {
     action: {
       type: "string",
-      enum: ["exec", "stream", "batch"],
+      enum: ["exec", "stream", "batch", "cancel", "cancelAll"],
       description:
-        "Execution mode. EXEC=run command synchronously and return result, STREAM=run command and return immediately with output stream, BATCH=run multiple commands in parallel",
+        "Execution mode. EXEC=run command synchronously and return result, STREAM=run command and return immediately with output stream, BATCH=run multiple commands in parallel, CANCEL=cancel a running command by execId, CANCELALL=cancel all running commands",
     },
     command: {
       type: "string",
@@ -328,6 +355,12 @@ const executeSchema = {
       maxItems: 50,
       description:
         "Array of commands for batch mode. Will execute in parallel up to concurrency limit.",
+    },
+    execId: {
+      type: "string",
+      description:
+        'Execution ID for cancel action. Required when action="cancel". Returned by exec/batch response.',
+      maxLength: 64,
     },
     timeout: {
       type: "number",
@@ -442,6 +475,13 @@ const fileSchema = {
       maximum: 3,
       description: "Number of retry attempts on failure",
     },
+    profile: {
+      type: "string",
+      enum: ["normal", "stealth", "mobile", "fast"],
+      default: "normal",
+      description:
+        "Preset profile for fetch. NORMAL=balanced UA+headers (default), STEALTH=maximum obfuscation (random UA + TLS fingerprint + param hide), MOBILE=mobile device UA, FAST=minimal overhead (curl UA, no param hide). When specified, overrides individual uaMode/tlsProfile/paramHide defaults; explicitly set parameters still take precedence.",
+    },
     uaMode: {
       type: "string",
       enum: [
@@ -455,7 +495,7 @@ const fileSchema = {
         "curl",
       ],
       description:
-        "User-Agent rotation mode for fetch. RANDOM=dynamic real browser UA, CHROME=Chrome UA with dynamic version, FIREFOX=Firefox UA, EDGE=Edge UA, SAFARI=Safari UA, MOBILE=mobile UA, BOT=crawler UA, CURL=curl UA. Default: random (recommended for most requests)",
+        "User-Agent rotation mode for fetch. RANDOM=dynamic real browser UA, CHROME=Chrome UA with dynamic version, FIREFOX=Firefox UA, EDGE=Edge UA, SAFARI=Safari UA, MOBILE=mobile UA, BOT=crawler UA, CURL=curl UA. Default: random. Note: profile preset overrides this default but explicit uaMode always wins.",
     },
     tlsProfile: {
       type: "string",
@@ -500,14 +540,6 @@ const fileSchema = {
       minimum: 0,
       description:
         "Byte offset for chunked fetch. Use to read large files in segments. Default: 0 (beginning). Combined with chunkSize for pagination. Example: chunkStart=50000, chunkSize=50000 reads bytes 50000-99999.",
-    },
-    chunkSize: {
-      type: "number",
-      default: 50000,
-      minimum: 1000,
-      maximum: 200000,
-      description:
-        "Maximum chunk size in bytes for fetch. Default: 50000 (50KB). Use together with chunkStart for pagination. Ideal for files >100KB to avoid truncation.",
     },
     referenceId: {
       type: "string",
@@ -600,6 +632,7 @@ const systemSchema = {
     },
     ports: {
       type: "string",
+      default: "21,22,80,443",
       maxLength: 512,
       description:
         'Ports to scan. Can be single port, range, or comma-separated. Example: "80", "1-1000", "22,80,443,8080"',
@@ -702,6 +735,12 @@ const pathSchema = {
       description:
         "Highlight interesting files in explore (config files, scripts, etc.)",
     },
+    verbose: {
+      type: "boolean",
+      default: false,
+      description:
+        "Show internal decision logic for explore. When true, returns _debug field explaining why files are classified as interesting/ignored and which rules were applied.",
+    },
   },
   required: ["action"],
 };
@@ -719,6 +758,7 @@ export function initializeTools(sessionManager, config) {
 
   tools["terminal"] = {
     name: "terminal",
+    shortDescription: "交互式终端会话 — 适合需要持久状态的命令（msfconsole、vim、nmap等）",
     description: `Interactive PTY terminal sessions for running shell commands and interactive tools.
 
 WHEN TO USE:
@@ -758,6 +798,7 @@ EXAMPLES:
 TIP: For one-shot commands without state, use 'execute' tool. For persistent sessions across disconnections, use 'tmux' tool.`,
     inputSchema: terminalSchema,
     handler: wrapHandler(terminalSchema, async (params) => {
+      params.sessionId = params.sessionId || params.terminalId;
       switch (params.action) {
         case "create":
           return terminalOps.create(
@@ -779,6 +820,8 @@ TIP: For one-shot commands without state, use 'execute' tool. For persistent ses
             params.wait,
             params.pattern,
             params.timeout,
+            params.doneMarker || null,
+            params.pollInterval || 200,
           );
         case "exec":
           return terminalOps.exec(
@@ -806,6 +849,7 @@ TIP: For one-shot commands without state, use 'execute' tool. For persistent ses
 
   tools["tmux"] = {
     name: "tmux",
+    shortDescription: "持久化终端复用器 — 断开连接后会话仍存活，支持分屏/窗口管理",
     description: `Terminal multiplexer for persistent sessions, split-screen operations, and background tasks.
 
 WHEN TO USE:
@@ -877,6 +921,7 @@ EXAMPLES:
 TIP: Use descriptive session names. Use createDetached for background sessions. Sessions survive disconnection.`,
     inputSchema: tmuxSchema,
     handler: wrapHandler(tmuxSchema, async (params) => {
+      params.sessionName = params.sessionName || params.tmuxSession;
       const opts = params.options || {};
       switch (params.action) {
         case "status":
@@ -965,6 +1010,7 @@ TIP: Use descriptive session names. Use createDetached for background sessions. 
 
   tools["execute"] = {
     name: "execute",
+    shortDescription: "一次性命令执行 — 无状态的快速命令，适合脚本式操作和并行批量执行",
     description: `Run commands without creating a persistent session.
 
 WHEN TO USE:
@@ -999,20 +1045,33 @@ TIP: For interactive commands (msfconsole, vim, top) or commands needing state, 
     inputSchema: executeSchema,
     handler: wrapHandler(executeSchema, async (params) => {
       switch (params.action) {
-        case "exec":
+        case "exec": {
+          const execId = execOps.generateExecId();
           return execOps.exec(
             params.command,
             params.timeout,
             params.cwd,
             params.env,
+            execId,
           );
+        }
         case "stream":
           return execOps.stream(params.command, params.cwd);
-        case "batch":
+        case "batch": {
+          const execId = execOps.generateExecId();
           return execOps.batch(params.commands, {
             timeout: params.timeout,
             concurrency: params.concurrency,
+            execId,
           });
+        }
+        case "cancel":
+          if (!params.execId) {
+            return { success: false, error: 'execId parameter required for cancel action' };
+          }
+          return execOps.cancelExec(params.execId);
+        case "cancelAll":
+          return execOps.cancelAllExec();
         default:
           return { success: false, error: `Unknown action: ${params.action}` };
       }
@@ -1021,6 +1080,7 @@ TIP: For interactive commands (msfconsole, vim, top) or commands needing state, 
 
   tools["file"] = {
     name: "file",
+    shortDescription: "文件系统操作 + HTTP 请求 — 读写/列出/下载文件，支持流量伪装",
     description: `File system operations and HTTP requests with traffic obfuscation.
 
 WHEN TO USE:
@@ -1097,7 +1157,17 @@ TIP: For directory exploration, use 'path' tool's tree/explore. For security-sen
             params.offset,
             params.append,
           );
-        case "fetch":
+        case "fetch": {
+          // Profile preset → defaults mapping (explicit params override)
+          const PROFILE_MAP = {
+            normal:  { uaMode: "random",  tlsProfile: "auto",      paramHide: true },
+            stealth: { uaMode: "random",  tlsProfile: "chrome131", paramHide: true },
+            mobile:  { uaMode: "mobile",  tlsProfile: "auto",      paramHide: true },
+            fast:    { uaMode: "curl",    tlsProfile: "auto",      paramHide: false },
+          };
+          const prof = PROFILE_MAP[params.profile || "normal"] || PROFILE_MAP.normal;
+          const uaMode  = params.uaMode  ?? prof.uaMode;
+          const tlsProf = params.tlsProfile ?? prof.tlsProfile;
           return fileOps.fetchUrl(
             params.url,
             params.method,
@@ -1105,12 +1175,13 @@ TIP: For directory exploration, use 'path' tool's tree/explore. For security-sen
             params.body,
             params.timeout || 60,
             params.retry,
-            params.uaMode,
-            params.tlsProfile,
+            uaMode,
+            tlsProf,
             params.chunkStart || 0,
             params.chunkSize || 50000,
             params.referenceId || null,
           );
+        }
         default:
           return { success: false, error: `Unknown action: ${params.action}` };
       }
@@ -1119,6 +1190,7 @@ TIP: For directory exploration, use 'path' tool's tree/explore. For security-sen
 
   tools["session"] = {
     name: "session",
+    shortDescription: "会话生命周期管理 — 查看/清理终端和 tmux 会话，查看资源统计",
     description: `Manage terminal and tmux sessions (lifecycle control).
 
 WHEN TO USE:
@@ -1180,6 +1252,7 @@ TIP: Use list regularly to find and clean up zombie sessions. Sessions inactive 
 
   tools["system"] = {
     name: "system",
+    shortDescription: "系统信息与网络工具 — 查看系统状态、网络接口、快速端口扫描",
     description: `System information and network utilities.
 
 WHEN TO USE:
@@ -1221,6 +1294,7 @@ TIP: For detailed scanning with custom nmap options, use 'execute' tool with nma
 
   tools["path"] = {
     name: "path",
+    shortDescription: "智能目录导航 — 目录树/文件查找/上下文记忆/书签，一次调用代替多次 ls",
     description: `Smart directory navigation with context memory - SOLVES the "multiple ls" problem.
 
 WHEN TO USE:
@@ -1285,6 +1359,7 @@ TIP: Start with explore to understand a directory, then use tree for detailed st
             showHidden: params.showHidden,
             groupByType: params.groupByType !== false,
             showInteresting: params.showInteresting !== false,
+            verbose: params.verbose === true,
           });
         case "context":
           const contextAction = params.name || "get";
@@ -1319,12 +1394,136 @@ TIP: Start with explore to understand a directory, then use tree for detailed st
     }),
   };
 
+  tools["sessions"] = tools["session"];
+
+  // ============================================================================
+  // SHELL TOOL - Convenience wrapper for command execution
+  // Routes to terminalOps (with sessionId) or execOps.exec (without)
+  // ============================================================================
+  const shellSchema = {
+    type: "object",
+    properties: {
+      command: {
+        type: "string",
+        maxLength: 4096,
+        description:
+          'Command to run. Example: "nmap -sV 192.168.1.1", "ls -la /tmp"',
+      },
+      sessionId: {
+        type: "string",
+        description:
+          "Optional terminal session ID. If provided, command is sent to an existing terminal session. If omitted, runs as a one-shot spawn.",
+        maxLength: 128,
+      },
+      timeout: {
+        type: "number",
+        default: 30,
+        minimum: 1,
+        maximum: 300,
+        description:
+          "Timeout in seconds. Only used when sessionId is not provided (one-shot mode).",
+      },
+      cwd: {
+        type: "string",
+        description:
+          'Working directory for one-shot mode. Example: "/tmp"',
+      },
+    },
+    required: ["command"],
+  };
+
+  tools["shell"] = {
+    name: "shell",
+    shortDescription: "便捷命令执行 — 有 sessionId 走终端会话，没有则一次性 spawn",
+    description: `Run commands through the most appropriate execution path.
+- WITH sessionId: Command is sent to an existing terminal session (write + read).
+- WITHOUT sessionId: Runs as a one-shot spawn (fast, no PTY overhead).
+
+WHEN TO USE:
+- Interactive tools (msfconsole, python, etc.) → provide a sessionId
+- Quick commands (ls, cat, whoami) → omit sessionId for speed
+- Unsure which tool to use → start here, it picks the right path`,
+    inputSchema: shellSchema,
+    handler: wrapHandler(shellSchema, async (params) => {
+      if (params.sessionId) {
+        const writeResult = await terminalOps.write(params.sessionId, params.command + "\n");
+        if (!writeResult.success) return writeResult;
+        return terminalOps.read(params.sessionId, true, "idle", null, params.timeout);
+      }
+      return execOps.exec(params.command, params.timeout, params.cwd);
+    }),
+  };
+
+  // ============================================================================
+  // FS TOOL - Convenience wrapper for file operations
+  // Routes to fileOps methods by action
+  // ============================================================================
+  const fsSchema = {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["read", "write", "list", "delete"],
+        description:
+          "File operation. READ=get file content, WRITE=create/overwrite file, LIST=list directory, DELETE=remove file",
+      },
+      path: {
+        type: "string",
+        description:
+          'File or directory path. Example: "/etc/passwd", "/tmp/notes.txt"',
+      },
+      content: {
+        type: "string",
+        description: "Content to write (required for write action)",
+      },
+      showHidden: {
+        type: "boolean",
+        default: false,
+        description: "Show hidden files in directory listing",
+      },
+    },
+    required: ["action", "path"],
+  };
+
+  tools["fs"] = {
+    name: "fs",
+    shortDescription: "便捷文件操作 — read/write/list/delete，自动路由到 fileOps",
+    description: `Simplified file operations that route to the appropriate fileOps method.
+
+ACTIONS:
+- read: Get file content as text
+- write: Create or overwrite file (requires content)
+- list: List directory contents
+- delete: Remove file or empty directory
+
+WHEN TO USE:
+- Quick file reads and writes
+- Listing directory contents
+- When you don't need the advanced features of the 'file' tool (fetch, download, upload)`,
+    inputSchema: fsSchema,
+    handler: wrapHandler(fsSchema, async (params) => {
+      switch (params.action) {
+        case "read":
+          return fileOps.read(params.path);
+        case "write":
+          return fileOps.write(params.path, params.content);
+        case "list":
+          return fileOps.list(params.path, params.showHidden);
+        case "delete":
+          return fileOps.delete(params.path);
+        default:
+          return { success: false, error: `Unknown action: ${params.action}` };
+      }
+    }),
+  };
+
   return tools;
 }
 
 export function getToolsList(tools) {
   return Object.values(tools).map((tool) => ({
     name: tool.name,
+    shortDescription: tool.shortDescription || null,
     description: tool.description,
     inputSchema: tool.inputSchema,
   }));

@@ -251,7 +251,8 @@ export const pathOps = {
       showHidden = false,
       groupByType = true,
       showInteresting = true,
-      maxItems = 100
+      maxItems = 100,
+      verbose = false
     } = options;
 
     const path = validatePath(rootPath);
@@ -378,6 +379,27 @@ export const pathOps = {
     pathContext.exploreHistory.unshift(pathContext.lastExplore);
     if (pathContext.exploreHistory.length > 20) {
       pathContext.exploreHistory.pop();
+    }
+
+    if (verbose) {
+      result._debug = {
+        rules: {
+          ignoredDirs: Array.from(IGNORED_DIRS).sort(),
+          ignoredFiles: Array.from(IGNORED_FILES).sort(),
+          interestingExtensions: Object.fromEntries(INTERESTING_EXTENSIONS),
+        },
+        decisions: {
+          totalEntries: entries.length,
+          filteredOut: entries.length - filtered.length,
+          ignoredDirNames: filtered.filter(e => IGNORED_DIRS.has(e.name)).map(e => e.name),
+          ignoredFileNames: filtered.filter(e => IGNORED_FILES.has(e.name)).map(e => e.name),
+        },
+        context: {
+          currentPath: pathContext.currentPath,
+          historyDepth: pathContext.history.length,
+          exploreHistoryCount: pathContext.exploreHistory.length,
+        },
+      };
     }
 
     return result;

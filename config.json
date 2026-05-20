@@ -31,6 +31,19 @@
     "default_session_prefix": "mcp_",
     "max_sessions": 10
   },
+  "performance": {
+    "concurrency": {
+      "min": 20,
+      "max": 80,
+      "initial": 50,
+      "adjust_interval_ms": 30000
+    },
+    "network_queue": {
+      "max_concurrent": 10,
+      "max_queue_size": 100,
+      "per_tool_limit": 5
+    }
+  },
   "kali_tools": {
     "nmap": {
       "path": "/usr/bin/nmap"

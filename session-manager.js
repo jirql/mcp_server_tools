@@ -12,6 +12,10 @@ import * as pty from 'node-pty';
 import { createLogger } from './utils-logger.js';
 import { EventEmitter } from 'events';
 import { randomBytes } from 'crypto';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
 
 const logger = createLogger('SESSION-MANAGER');
 
@@ -739,17 +743,12 @@ export class PTYSession extends EventEmitter {
 
   async _cleanupTmuxSession(tmuxName) {
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execPromise = promisify(exec);
-
       if (!/^[a-zA-Z0-9_]+$/.test(tmuxName)) {
         logger.warn('Invalid tmux session name - cleanup skipped', { tmuxName });
         return;
       }
 
-      const escapeArgs = (name) => name.replace(/[^a-zA-Z0-9_]/g, '_');
-      const safeName = escapeArgs(tmuxName);
+      const safeName = tmuxName.replace(/[^a-zA-Z0-9_]/g, '_');
 
       const { error, stdout, stderr } = await execPromise(
         `tmux kill-session -t ${safeName} 2>/dev/null || true`,
@@ -870,10 +869,6 @@ export class PTYSession extends EventEmitter {
 
   async checkTmuxStatus() {
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execPromise = promisify(exec);
-
       // Check lock to prevent race conditions
       const now = Date.now();
       if (this._tmuxLockTime && (now - this._tmuxLockTime < 1000)) {
@@ -1197,10 +1192,6 @@ export class SessionManager {
     }
 
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execPromise = promisify(exec);
-
       const { stdout } = await execPromise(
         `tmux has-session -t "${safeName}" 2>/dev/null && echo "exists"`,
         { timeout: 5000 }
